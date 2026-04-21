@@ -13,8 +13,9 @@ FetchContent_Declare(SFML
 FetchContent_MakeAvailable(SFML)
 
 add_executable(GameServer Core/main.cpp
-        Core/GameServer.cpp
-        Core/GameServer.h)
+        Core/NetworkManager.cpp
+        Core/NetworkManager.h
+        Core/GameMessage.h)
 
 target_compile_features(GameServer PRIVATE cxx_std_17)
 target_link_libraries(GameServer PRIVATE SFML::Network)

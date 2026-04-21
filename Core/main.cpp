@@ -1,13 +1,24 @@
-#include "GameServer.h"
+#include <iostream>
+
+#include "NetworkManager.h"
 
 #include <thread>
 
 int main()
 {
-    GameServer server(4300, 4301);
-    std::thread udp_thread(&GameServer::udp_start, &server);
-    std::this_thread::sleep_for(std::chrono::milliseconds(50)); // Not strictly necessary, just helps with the output
-    server.tcp_start();
-    udp_thread.join();
+    NetworkManager net(4300, 4301);
+
+    net.set_accept_new_client(true);
+
+    std::string message;
+
+    while (true)
+    {
+        if (net.get_next_message(message))
+        {
+            std::cout << message << std::endl;
+        }
+    }
+
     return 0;
 }
