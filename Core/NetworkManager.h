@@ -1,37 +1,47 @@
-#ifndef TEST_GAMESERVER_H
-#define TEST_GAMESERVER_H
-#endif //TEST_GAMESERVER_H
+#ifndef MAM_GAMESERVER_NETWORKMANAGER_H
+#define MAM_GAMESERVER_NETWORKMANAGER_H
 
 #include <mutex>
 #include <unordered_map>
 #include <queue>
-#include <atomic>
-#include <SFML/Network.hpp>
+#include <condition_variable>
+#include "GameMessage.h"
+
+namespace sf
+{
+    class TcpSocket;
+}
 
 class NetworkManager {
+
 public:
-    NetworkManager(unsigned short tcp_port, unsigned short udp_port);
+    NetworkManager(const unsigned short tcp_port, const unsigned short udp_port) : m_tcp_port(tcp_port), m_udp_port(udp_port){}
+    ~NetworkManager();
+
+    void start();
+
+    NetworkManager(const NetworkManager&) = delete;
+    NetworkManager& operator=(const NetworkManager&) = delete;
 
     void set_accept_new_client(bool accept_new_client);
+    bool get_accept_new_client();
 
-    bool get_next_message(std::string& message);
+    RawMessage await_next_message();
 
-    // Sends `message` to all connected clients
-    void tcp_message_all(const std::string& message);
-
-    void tcp_message_id(const std::string& message, const int& id);
+    static constexpr unsigned short m_max_players{4};
 
 private:
-    unsigned short m_tcp_port;
-    unsigned short m_udp_port;
+    const unsigned short m_tcp_port;
+    const unsigned short m_udp_port;
 
     std::unordered_map<unsigned short, sf::TcpSocket*> m_clients;
-    int m_next_client_id{1};
     std::mutex m_clients_mutex;
 
-    std::atomic<bool> m_queue_has_message{false};
-    std::queue<std::string> m_message_queue;
-    std::mutex m_message_queue_mutex;
+    unsigned short m_next_client_id{0};
+
+    std::queue<RawMessage> m_queue;
+    std::mutex m_queue_mutex;
+    std::condition_variable m_queue_cond;
 
     bool m_accept_new_client{true};
     std::mutex m_accept_new_client_mutex;
@@ -48,11 +58,20 @@ private:
 
     // Loop around, receive messages from client and send them to all
     // the other connected clients.
-    void handle_client(sf::TcpSocket* client, int id);
+    void handle_client(sf::TcpSocket* client, unsigned short id);
 
     //Add `message` to vector
-    void add_message(const std::string &message);
+    void add_message(const unsigned short &id, char* payload, const size_t &size);
 
+public:
+    // Sends `message` to all connected clients
+    void tcp_message_all(const GameMessage* message);
+
+    void tcp_message_id(const GameMessage* message, const int& id);
+
+private:
     // Sends `message` to `client`
-    static void tcp_message_client(const std::string& message, sf::TcpSocket* client);
+    static void tcp_message_client(const std::stringstream &payload, sf::TcpSocket* client);
 };
+
+#endif //MAM_GAMESERVER_NETWORKMANAGER_H

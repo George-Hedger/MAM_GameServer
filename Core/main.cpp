@@ -1,24 +1,10 @@
-#include <iostream>
-
-#include "NetworkManager.h"
-
-#include <thread>
+#include "GameServer.h"
 
 int main()
 {
-    NetworkManager net(4300, 4301);
+    auto server = GameServer(4300, 4301);
 
-    net.set_accept_new_client(true);
-
-    std::string message;
-
-    while (true)
-    {
-        if (net.get_next_message(message))
-        {
-            std::cout << message << std::endl;
-        }
-    }
+    server.start();
 
     return 0;
 }

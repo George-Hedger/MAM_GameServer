@@ -3,8 +3,19 @@
 #include <algorithm>
 #include <iostream>
 #include <thread>
+#include <SFML/Network.hpp>
 
-NetworkManager::NetworkManager(const unsigned short tcp_port, const unsigned short udp_port) : m_tcp_port(tcp_port), m_udp_port(udp_port)
+
+NetworkManager::~NetworkManager()
+{
+    std::lock_guard lock(m_clients_mutex);
+    for (const auto&[fst, snd] : m_clients)
+    {
+        delete &snd;
+    }
+}
+
+void NetworkManager::start()
 {
     //std::thread(&NetworkManager::udp_start, this).detach();
     std::thread(&NetworkManager::tcp_start, this).detach();
@@ -16,22 +27,21 @@ void NetworkManager::set_accept_new_client(const bool accept_new_client)
     m_accept_new_client = accept_new_client;
 }
 
-bool NetworkManager::get_next_message(std::string &message)
+bool NetworkManager::get_accept_new_client()
 {
-    if (!m_queue_has_message.load())
-        return false;
-    else
-    {
-        std::lock_guard lock(m_message_queue_mutex);
+    std::lock_guard lock(m_accept_new_client_mutex);
+    return m_accept_new_client;
+}
 
-        message = m_message_queue.front();
-        m_message_queue.pop();
+RawMessage NetworkManager::await_next_message()
+{
+    std::unique_lock lock(m_queue_mutex);     // Lock the mutex
+    m_queue_cond.wait(lock, [this]() { return !m_queue.empty(); }); // Wait until queue is not empty
 
-        if (m_message_queue.empty())
-            m_queue_has_message.store(false);
+    RawMessage value = std::move(m_queue.front());
+    m_queue.pop();
 
-        return true;
-    }
+    return value;
 }
 
 void NetworkManager::tcp_start()
@@ -79,6 +89,11 @@ void NetworkManager::tcp_start()
 
                 std::thread(&NetworkManager::handle_client, this, client, m_next_client_id).detach();
                 m_next_client_id++;
+
+                if (m_max_players == m_next_client_id)
+                {
+                    set_accept_new_client(false);
+                }
             }
             else
             {
@@ -135,9 +150,9 @@ void NetworkManager::udp_start()
 }
 */
 
-void NetworkManager::handle_client(sf::TcpSocket *client, const int id)
+void NetworkManager::handle_client(sf::TcpSocket *client, const unsigned short id)
 {
-    while (true)
+    while (client != nullptr)
     {
         // RECEIVING
         char payload[1024] = {};
@@ -150,7 +165,8 @@ void NetworkManager::handle_client(sf::TcpSocket *client, const int id)
         {
             std::string message(payload);
             std::cout << "Received message: " << message << std::endl;
-            add_message(message);
+
+            add_message(id, payload, received);
         }
     }
 
@@ -160,37 +176,39 @@ void NetworkManager::handle_client(sf::TcpSocket *client, const int id)
         std::lock_guard lock(m_clients_mutex);
         m_clients.erase(id);
     }
-
-    delete client;
 }
 
-void NetworkManager::add_message(const std::string &message)
+void NetworkManager::add_message(const unsigned short &id, char* payload, const size_t &size)
 {
-    std::lock_guard lock(m_message_queue_mutex);
-    m_message_queue.push(message);
-    m_queue_has_message.store(true);
+    {
+        std::lock_guard lock(m_queue_mutex);
+        m_queue.push(RawMessage(id, payload, size));
+    }
+    m_queue_cond.notify_one();
 }
 
-void NetworkManager::tcp_message_all(const std::string &message)
+void NetworkManager::tcp_message_all(const GameMessage *message)
 {
+    const auto payload = message->serialize();
+
     std::lock_guard lock(m_clients_mutex);
     for (const auto&[fst, snd] : m_clients)
     {
-        tcp_message_client(message, snd);
+        tcp_message_client(payload, snd);
     }
 }
 
-void NetworkManager::tcp_message_id(const std::string &message, const int &id)
+void NetworkManager::tcp_message_id(const GameMessage *message, const int &id)
 {
     std::lock_guard lock(m_clients_mutex);
     if(const auto client = m_clients.at(id); client != nullptr)
-        tcp_message_client(message, client);
+        tcp_message_client(message->serialize(), client);
 }
 
-void NetworkManager::tcp_message_client(const std::string &message, sf::TcpSocket* client)
+void NetworkManager::tcp_message_client(const std::stringstream &payload, sf::TcpSocket* client)
 {
     // SENDING
-    if (client->send(message.c_str(), message.size() + 1)
+    if (client->send(payload.str().data(), payload.str().size())
         != sf::Socket::Status::Done)
     {
         std::cerr << "Error sending message to client" << std::endl;
