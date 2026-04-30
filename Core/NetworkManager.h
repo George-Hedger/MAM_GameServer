@@ -28,16 +28,16 @@ public:
 
     RawMessage await_next_message();
 
-    static constexpr unsigned short m_max_players{4};
+    static constexpr int8_t m_max_players{1};
 
 private:
     const unsigned short m_tcp_port;
     const unsigned short m_udp_port;
 
-    std::unordered_map<unsigned short, sf::TcpSocket*> m_clients;
+    std::unordered_map<unsigned int, sf::TcpSocket*> m_clients;
     std::mutex m_clients_mutex;
 
-    unsigned short m_next_client_id{0};
+    unsigned int m_next_client_id{0};
 
     std::queue<RawMessage> m_queue;
     std::mutex m_queue_mutex;
@@ -58,20 +58,21 @@ private:
 
     // Loop around, receive messages from client and send them to all
     // the other connected clients.
-    void handle_client(sf::TcpSocket* client, unsigned short id);
+    void handle_client(sf::TcpSocket* client, unsigned int id);
 
     //Add `message` to vector
-    void add_message(const unsigned short &id, char* payload, const size_t &size);
+    void add_message(const char *data, const size_t &size, const unsigned int &id);
 
 public:
     // Sends `message` to all connected clients
-    void tcp_message_all(const GameMessage* message);
+    void tcp_message_all(const GameMessage* message, const unsigned int &ignoreId = 1000);
 
-    void tcp_message_id(const GameMessage* message, const int& id);
+    void tcp_message_id(const GameMessage* message, const unsigned int& id);
+    void tcp_message_id(const std::stringstream &stream, const unsigned int& id);
 
 private:
     // Sends `message` to `client`
-    static void tcp_message_client(const std::stringstream &payload, sf::TcpSocket* client);
+    static void tcp_message_client(const std::stringstream &stream, sf::TcpSocket* client);
 };
 
 #endif //MAM_GAMESERVER_NETWORKMANAGER_H

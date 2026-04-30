@@ -9,9 +9,9 @@
 NetworkManager::~NetworkManager()
 {
     std::lock_guard lock(m_clients_mutex);
-    for (const auto&[fst, snd] : m_clients)
+    for (auto&[fst, snd] : m_clients)
     {
-        delete &snd;
+        snd->disconnect();
     }
 }
 
@@ -85,24 +85,18 @@ void NetworkManager::tcp_start()
 
                 std::cout << "New client connected: "
                     << client->getRemoteAddress().value()
-                    << std::endl;
+                    << " ID: " << m_next_client_id << std::endl;
 
                 std::thread(&NetworkManager::handle_client, this, client, m_next_client_id).detach();
                 m_next_client_id++;
-
-                if (m_max_players == m_next_client_id)
-                {
-                    set_accept_new_client(false);
-                }
             }
             else
             {
-                //TODO add "game in progress" message
+                const auto msg = ErrorMessage(1, "Game in progress").serialize();
+                tcp_message_client(msg, client);
             }
         }
     }
-    // No need to call close of the listener.
-    // The connection is closed automatically when the listener object is out of scope.
 }
 
 /*
@@ -123,7 +117,7 @@ void NetworkManager::udp_start()
     {
         std::array<char, 1024> buffer = {};
         std::size_t received;
-        unsigned short receiver_port;
+        int8_t receiver_port;
 
         // RECEIVING
         std::optional<sf::IpAddress> sender;
@@ -150,67 +144,106 @@ void NetworkManager::udp_start()
 }
 */
 
-void NetworkManager::handle_client(sf::TcpSocket *client, const unsigned short id)
+void NetworkManager::handle_client(sf::TcpSocket *client, const unsigned int id)
 {
-    while (client != nullptr)
+    while (client->getRemotePort() != 0)
     {
-        // RECEIVING
-        char payload[1024] = {};
-        if (size_t received; client->receive(payload, 1024, received)
-            != sf::Socket::Status::Done)
+        char data[1024];
+        switch (size_t size; client->receive(data, 1024, size))
         {
-            std::cerr << "Error receiving message from client" << std::endl;
-        }
-        else
-        {
-            std::string message(payload);
-            std::cout << "Received message: " << message << std::endl;
+            case sf::Socket::Status::Disconnected:
+                client->disconnect();
+                break;
+            case sf::Socket::Status::Done:
+            {
+                std::cout << "Received message from client: " << id<< std::endl;
+                std::stringstream stream;
 
-            add_message(id, payload, received);
+                stream.write(data, static_cast<std::streamsize>(size));
+                add_message(data, size, id);
+                break;
+            }
+            case sf::Socket::Status::NotReady:
+            case sf::Socket::Status::Partial:
+            case sf::Socket::Status::Error:
+            default:
+                std::cerr << "Error receiving message from client " << id << std::endl;
+                break;
         }
     }
 
-    // Everything that follows only makes sense if we have a graceful way to exiting the loop.
-    // Remove the client from the list when done
+    std::cerr << "Client " << id << " disconnected!" << std::endl;
+
     {
         std::lock_guard lock(m_clients_mutex);
         m_clients.erase(id);
     }
+
+    delete client;
+    client = nullptr;
 }
 
-void NetworkManager::add_message(const unsigned short &id, char* payload, const size_t &size)
+void NetworkManager::add_message(const char *data, const size_t &size, const unsigned int &id)
 {
     {
         std::lock_guard lock(m_queue_mutex);
-        m_queue.push(RawMessage(id, payload, size));
+        m_queue.emplace(data, size, id);
     }
+
     m_queue_cond.notify_one();
 }
 
-void NetworkManager::tcp_message_all(const GameMessage *message)
+void NetworkManager::tcp_message_all(const GameMessage *message, const unsigned int &ignoreId)
 {
-    const auto payload = message->serialize();
+    const auto stream = message->serialize();
 
     std::lock_guard lock(m_clients_mutex);
     for (const auto&[fst, snd] : m_clients)
     {
-        tcp_message_client(payload, snd);
+        if (fst != ignoreId)
+            tcp_message_client(stream, snd);
     }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
 }
 
-void NetworkManager::tcp_message_id(const GameMessage *message, const int &id)
+void NetworkManager::tcp_message_id(const GameMessage *message, const unsigned int &id)
+{
+    tcp_message_id(message->serialize(), id);
+}
+
+void NetworkManager::tcp_message_id(const std::stringstream &stream, const unsigned int &id)
 {
     std::lock_guard lock(m_clients_mutex);
     if(const auto client = m_clients.at(id); client != nullptr)
-        tcp_message_client(message->serialize(), client);
+        tcp_message_client(stream, client);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
 }
 
-void NetworkManager::tcp_message_client(const std::stringstream &payload, sf::TcpSocket* client)
+void NetworkManager::tcp_message_client(const std::stringstream &stream, sf::TcpSocket* client)
 {
-    // SENDING
-    if (client->send(payload.str().data(), payload.str().size())
-        != sf::Socket::Status::Done)
+    std::cout << "Sending: " << stream.str() << std::endl;
+    bool retry = false;
+    do
     {
-        std::cerr << "Error sending message to client" << std::endl;
+        switch (client->send(stream.str().c_str(), stream.str().size()))
+        {
+            case sf::Socket::Status::Done:
+                std::cout << "Successfully sent message to client" << std::endl;
+                break;
+            case sf::Socket::Status::Disconnected:
+                break;
+            case sf::Socket::Status::Error:
+                std::cerr << "Error sending message to client" << std::endl;
+                break;
+            case sf::Socket::Status::NotReady:
+            case sf::Socket::Status::Partial:
+            default:
+                std::cerr << "Retrying: sending message to client" << std::endl;
+                retry = true;
+                break;
+        }
     }
+    while (retry);
 }

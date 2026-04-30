@@ -6,23 +6,27 @@
 #define MAM_GAMESERVER_GAMESERVER_H
 #include "NetworkManager.h"
 
-
 class GameServer {
 
 public:
-    GameServer(unsigned short tcp_port, unsigned short udp_port) : net(tcp_port, udp_port){};
+    GameServer(const unsigned short tcp_port, const unsigned short udp_port) : net(tcp_port, udp_port){};
 
     void start();
 
 private:
     NetworkManager net;
 
+    static constexpr int8_t map_x{32};
+    static constexpr int8_t map_y{64};
+
     void login_loop();
-    bool validate_name(const std::string& name, const unsigned short &id) const;
+    bool validate_name(const std::string& name, const int8_t &id) const;
 
     void generate_world();
 
-    std::unordered_map<unsigned short, std::string> player_names;
+    int8_t map[map_y][map_x]{-2};
+
+    std::unordered_map<int8_t, std::string> player_names;
 };
 
 

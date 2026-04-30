@@ -18,6 +18,8 @@ add_executable(GameServer Core/main.cpp
         Core/GameMessage.h
         Core/GameServer.cpp
         Core/GameServer.h
+        Core/Entity.cpp
+        Core/Entity.h
 )
 
 target_compile_features(GameServer PRIVATE cxx_std_17)

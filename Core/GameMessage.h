@@ -5,118 +5,184 @@
 #ifndef MAM_GAMESERVER_GAMEMESSAGE_H
 #define MAM_GAMESERVER_GAMEMESSAGE_H
 
+#include <iostream>
 #include <sstream>
 #include <utility>
 
 #define TRY_DESERIALIZE(raw, message_type) if (const auto* message = MessageFactory::try_deserialize<message_type>(raw); message != nullptr)
 
-enum MessageType : char
+enum MessageType : int8_t
 {
     REGISTER = 0,
     ERROR = 1,
-    SUCCESS = 2
+    SUCCESS = 2,
+    INFO = 3,
+    TILE_UPDATE = 4
 };
 
 struct RawMessage
 {
-protected:
-    friend class NetworkManager;
-    RawMessage(const unsigned short &client_id, char* _payload, const size_t &size) :
-        id(client_id),
-        type(static_cast<MessageType>(_payload[0])),
-        payload(std::string(_payload + 1, size))
-    {}
+    RawMessage(const char* data, const size_t & size, const unsigned int &_id) : id(_id)
+    {
+        type = static_cast<MessageType>(*data);
 
-public:
-    const unsigned short id;
-    const MessageType type;
-    std::stringstream payload{};
+        stream.write(data + 1, static_cast<std::streamsize>(size) - 1);
+    }
+
+    MessageType type;
+    std::stringstream stream{};
+    const unsigned int id;
 };
 
 struct GameMessage
 {
-protected:
-    virtual void deserialize(std::stringstream& payload) = 0;
-
-    virtual void int_serialize(std::stringstream& stream) const = 0;
-
-public:
+    explicit GameMessage(const MessageType _type) : type(_type){}
 
     [[nodiscard]] std::stringstream serialize() const
     {
         std::stringstream stream;
         stream << type;
-        int_serialize(stream);
+        _serialize(stream);
         return stream;
     }
 
-    unsigned short id{};
-    MessageType type{};
+    MessageType type;
+
+protected:
+    friend class MessageFactory;
+
+    virtual void _deserialize(std::stringstream &stream) = 0;
+
+    virtual void _serialize(std::stringstream &stream) const = 0;
+
+    void deserialize(std::stringstream &stream)
+    {
+        _deserialize(stream);
+    }
 };
+
+//
+//
+//
 
 struct RegisterMessage : GameMessage
 {
-protected:
-    friend class MessageFactory;
-    void deserialize(std::stringstream& payload) override
-    {
-        chosen_player_name = payload.str();
-    }
+    RegisterMessage() : GameMessage(REGISTER){}
 
-    void int_serialize(std::stringstream& stream) const override
-    {
-        stream << chosen_player_name;
-    }
-
-public:
-    RegisterMessage()
-    {
-        type = REGISTER;
-    }
+    RegisterMessage(std::string _chosen_player_name) : GameMessage(REGISTER),
+        chosen_player_name(std::move(_chosen_player_name)){}
 
     std::string chosen_player_name;
+
+protected:
+    void _deserialize(std::stringstream &stream) override
+    {
+        uint8_t len;
+        stream >> len;
+        char data[len];
+        stream.read(data, len);
+        chosen_player_name = std::string(data, len);
+    }
+
+    void _serialize(std::stringstream &stream) const override
+    {
+        stream << static_cast<uint8_t>(chosen_player_name.length()) << chosen_player_name;
+    }
 };
 
 struct ErrorMessage : GameMessage
 {
-protected:
-    friend class MessageFactory;
-    void deserialize(std::stringstream& payload) override
-    {
-        payload >> code;
-    }
+    ErrorMessage() : GameMessage(ERROR){}
 
-    void int_serialize(std::stringstream& stream) const override
-    {
-        stream << code << error_message;
-    }
+    ErrorMessage(const int8_t &_code, std::string _message) : GameMessage(ERROR),
+        code(_code), error_message(std::move(_message)){}
 
-public:
-    ErrorMessage()
-    {
-        type = ERROR;
-    }
-    ErrorMessage(const unsigned short &_code, std::string _message) : error_message(std::move(_message)), code(_code)
-    {
-        type = ERROR;
-    }
-
+    int8_t code{};
     std::string error_message;
-    unsigned short code{};
+
+protected:
+    void _deserialize(std::stringstream &stream) override
+    {
+        uint8_t len;
+        stream >> code >> len;
+        char data[len];
+        stream.read(data, len);
+        error_message = std::string(data, len);
+    }
+
+    void _serialize(std::stringstream &stream) const override
+    {
+        stream << code << static_cast<uint8_t>(error_message.length()) << error_message;;
+    }
 };
 
 struct SuccessMessage : GameMessage
 {
+    SuccessMessage() : GameMessage(SUCCESS) {}
+
+    SuccessMessage(const int8_t &_code) : GameMessage(SUCCESS),
+        code(_code){}
+
+    int8_t code{};
+
 protected:
-    friend class MessageFactory;
-    void deserialize(std::stringstream& payload) override {}
-
-    void int_serialize(std::stringstream& stream) const override {}
-
-public:
-    SuccessMessage()
+    void _deserialize(std::stringstream &stream) override
     {
-        type = SUCCESS;
+        stream >> code;
+    }
+
+    void _serialize(std::stringstream &stream) const override
+    {
+        stream << code;
+    }
+};
+
+struct InfoMessage : GameMessage
+{
+    InfoMessage() : GameMessage(INFO){}
+
+    InfoMessage(const int8_t &_payload, std::string _details) : GameMessage(INFO),
+        payload(_payload), details(std::move(_details)){}
+
+    int8_t payload{};
+    std::string details;
+
+protected:
+    void _deserialize(std::stringstream &stream) override
+    {
+        uint8_t len;
+        stream >> payload >> len;
+        char data[len];
+        stream.read(data, len);
+        details = std::string(data, len);
+    }
+
+    void _serialize(std::stringstream &stream) const override
+    {
+        stream << payload << static_cast<uint8_t>(details.length()) << details;;
+    }
+};
+
+struct TileUpdateMessage : GameMessage
+{
+    TileUpdateMessage() : GameMessage(TILE_UPDATE) {}
+
+    TileUpdateMessage(const int8_t &_x, const int8_t &_y, const int8_t &_occupied_id = -1) : GameMessage(TILE_UPDATE),
+        x(_x), y(_y), occupied_id(_occupied_id) {}
+
+    int8_t x{};
+    int8_t y{};
+    int8_t occupied_id{};
+
+protected:
+    void _deserialize(std::stringstream &stream) override
+    {
+        stream >> x >> y >> occupied_id;
+    }
+
+    void _serialize(std::stringstream &stream) const override
+    {
+        stream << x << y << occupied_id;
     }
 };
 
@@ -129,9 +195,11 @@ public:
         if (check_type<T>(raw.type))
         {
             T* message = new T();
-            message->id = raw.id;
-            message->type = raw.type;
-            message->deserialize(raw.payload);
+            message->deserialize(raw.stream);
+
+            std::cout << "New message of type " << int(raw.type) << std::endl;
+
+            return message;
         }
 
         return nullptr;
@@ -149,8 +217,14 @@ private:
                 return std::is_same_v<T, ErrorMessage>;
             case SUCCESS:
                 return std::is_same_v<T, SuccessMessage>;
+            case INFO:
+                return std::is_same_v<T, InfoMessage>;
+            case TILE_UPDATE:
+                return std::is_same_v<T, TileUpdateMessage>;
                 break;
         }
+
+        std::cout << "Could not find message of type" << int(type) << std::endl;
 
         return false;
     }
