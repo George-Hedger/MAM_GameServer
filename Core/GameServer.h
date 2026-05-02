@@ -16,6 +16,8 @@ public:
 private:
     NetworkManager net;
 
+    static constexpr int8_t m_max_players{1};
+
     static constexpr int8_t map_x{32};
     static constexpr int8_t map_y{64};
 
@@ -25,8 +27,11 @@ private:
     void generate_world();
 
     int8_t map[map_y][map_x]{-2};
+    std::unordered_map<int8_t, class Entity*> entities;
 
     std::unordered_map<int8_t, std::string> player_names;
+
+    void game_loop();
 };
 
 

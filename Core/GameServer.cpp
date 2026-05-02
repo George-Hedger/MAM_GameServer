@@ -19,7 +19,7 @@ void GameServer::login_loop()
 {
     net.set_accept_new_client(true);
 
-    while (player_names.size() < NetworkManager::m_max_players)
+    while (player_names.size() < m_max_players)
     {
         RawMessage raw = net.await_next_message();
 
@@ -47,7 +47,7 @@ void GameServer::login_loop()
         {
             if (message->details == "MaxPlayerCount")
             {
-                net.tcp_message_id(new InfoMessage{NetworkManager::m_max_players, "MaxPlayerCount"}, raw.id);
+                net.tcp_message_id(new InfoMessage{m_max_players, "MaxPlayerCount"}, raw.id);
             }
             else if (message->details == "CurrentPlayers")
             {
@@ -81,13 +81,13 @@ void GameServer::generate_world()
 {
     std::cout << "Generating world..." << std::endl;
 
-    net.tcp_message_all(new RegisterMessage{"Loading Map"});
+    net.tcp_message_all(new RegisterMessage{"Loading Map..."});
     net.tcp_message_all(new InfoMessage{map_x, "MapX"});
     net.tcp_message_all(new InfoMessage{map_y, "MapY"});
 
     int success = 0;
 
-    while (success < NetworkManager::m_max_players)
+    while (success < m_max_players)
     {
         RawMessage raw = net.await_next_message();
 
@@ -102,7 +102,7 @@ void GameServer::generate_world()
         {
             if (message->details == "MaxPlayerCount")
             {
-                net.tcp_message_id(new InfoMessage{NetworkManager::m_max_players, "MaxPlayerCount"}, raw.id);
+                net.tcp_message_id(new InfoMessage{m_max_players, "MaxPlayerCount"}, raw.id);
             }
             else if (message->details == "CurrentPlayers")
             {
@@ -131,25 +131,21 @@ void GameServer::generate_world()
 
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    int updates = 0;
+    for (auto [id, name] : player_names)
+    {
+
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     for (int8_t y = 0; y < map_y; y++)
     {
-        for (int8_t x = 0; x < map_x; x++)
-        {
-            if (const auto t = map[y][x]; t != -2)
-            {
-                updates++;
-                net.tcp_message_all(new TileUpdateMessage(x, y, t));
-            }
-        }
+        net.tcp_message_all(new LoadMapMessage(y, map_x, map[y]));
     }
-
-    net.tcp_message_all(new InfoMessage{-1, std::to_string(updates)});
 
     success = 0;
 
-    while (success < NetworkManager::m_max_players)
+    while (success < m_max_players)
     {
         RawMessage raw = net.await_next_message();
 
@@ -165,5 +161,23 @@ void GameServer::generate_world()
             std::cerr << "No use for message" << std::endl;
             std::cerr << raw.stream.str() << std::endl;
         }
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    net.tcp_message_all(new SuccessMessage(3));
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    game_loop();
+}
+
+void GameServer::game_loop()
+{
+    bool playing = true;
+
+    while (playing)
+    {
+
     }
 }

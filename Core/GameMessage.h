@@ -17,16 +17,16 @@ enum MessageType : int8_t
     ERROR = 1,
     SUCCESS = 2,
     INFO = 3,
-    TILE_UPDATE = 4
+    TILE_UPDATE = 4,
+    LOAD_MAP = 5
 };
 
 struct RawMessage
 {
-    RawMessage(const char* data, const size_t & size, const unsigned int &_id) : id(_id)
+    RawMessage(const char *data, const unsigned int &_id, const int &length) : id(_id)
     {
         type = static_cast<MessageType>(*data);
-
-        stream.write(data + 1, static_cast<std::streamsize>(size) - 1);
+        stream.write(data + 1, length - 1);
     }
 
     MessageType type;
@@ -165,9 +165,9 @@ protected:
 
 struct TileUpdateMessage : GameMessage
 {
-    TileUpdateMessage() : GameMessage(TILE_UPDATE) {}
+    TileUpdateMessage() : GameMessage(LOAD_MAP) {}
 
-    TileUpdateMessage(const int8_t &_x, const int8_t &_y, const int8_t &_occupied_id = -1) : GameMessage(TILE_UPDATE),
+    TileUpdateMessage(const int8_t &_x, const int8_t &_y, const int8_t &_occupied_id = -1) : GameMessage(LOAD_MAP),
         x(_x), y(_y), occupied_id(_occupied_id) {}
 
     int8_t x{};
@@ -183,6 +183,37 @@ protected:
     void _serialize(std::stringstream &stream) const override
     {
         stream << x << y << occupied_id;
+    }
+};
+
+struct LoadMapMessage : GameMessage
+{
+    LoadMapMessage() : GameMessage(LOAD_MAP) {}
+
+    LoadMapMessage(const int8_t &_y, const int8_t &_length, int8_t *_tiles) : GameMessage(LOAD_MAP),
+        y(_y), length(_length), tiles(_tiles) {}
+
+    int8_t y{};
+    int8_t length{};
+    int8_t *tiles{};
+
+protected:
+    void _deserialize(std::stringstream &stream) override
+    {
+        stream >> y >> length;
+        for (int8_t i = 0; i <= length; i++)
+        {
+            stream >> tiles[i];
+        }
+    }
+
+    void _serialize(std::stringstream &stream) const override
+    {
+        stream << y << length;
+        for (int8_t i = 0; i <= length; i++)
+        {
+            stream << tiles[i];
+        }
     }
 };
 
@@ -221,6 +252,8 @@ private:
                 return std::is_same_v<T, InfoMessage>;
             case TILE_UPDATE:
                 return std::is_same_v<T, TileUpdateMessage>;
+            case LOAD_MAP:
+                return std::is_same_v<T, LoadMapMessage>;
                 break;
         }
 

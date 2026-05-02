@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <iostream>
+#include <string.h>
 #include <thread>
 #include <SFML/Network.hpp>
 
@@ -92,7 +93,7 @@ void NetworkManager::tcp_start()
             }
             else
             {
-                const auto msg = ErrorMessage(1, "Game in progress").serialize();
+                auto msg = ErrorMessage(1, "Game in progress").serialize();
                 tcp_message_client(msg, client);
             }
         }
@@ -146,9 +147,16 @@ void NetworkManager::udp_start()
 
 void NetworkManager::handle_client(sf::TcpSocket *client, const unsigned int id)
 {
+    bool partial = false;
+    int8_t expected = 0;
+
+    std::stringstream message_buffer;
+    size_t buffer_size = 0;
+
     while (client->getRemotePort() != 0)
     {
         char data[1024];
+
         switch (size_t size; client->receive(data, 1024, size))
         {
             case sf::Socket::Status::Disconnected:
@@ -156,11 +164,45 @@ void NetworkManager::handle_client(sf::TcpSocket *client, const unsigned int id)
                 break;
             case sf::Socket::Status::Done:
             {
-                std::cout << "Received message from client: " << id<< std::endl;
-                std::stringstream stream;
+                message_buffer.write(data, static_cast<long>(size));
+                buffer_size += size;
 
-                stream.write(data, static_cast<std::streamsize>(size));
-                add_message(data, size, id);
+                bool loop = true;
+
+                while (loop)
+                {
+                    loop = false;
+
+                    if (!partial)
+                    {
+                        expected = static_cast<int8_t>(message_buffer.get());
+                        buffer_size--;
+                    }
+                    else
+                    {
+                        partial = false;
+                    }
+
+                    if (buffer_size >= expected)
+                    {
+                        std::cout << "Received message from client: " << id<< std::endl;
+
+                        add_message(message_buffer, id, expected);
+                        buffer_size -= expected;
+
+                        if (buffer_size > expected && expected != 0)
+                            loop = true;
+                        else
+                            message_buffer.clear();
+                    }
+                    else
+                    {
+                        std::cout << "Received partial from client: " << id<< std::endl;
+
+                        partial = true;
+                    }
+                }
+
                 break;
             }
             case sf::Socket::Status::NotReady:
@@ -183,11 +225,14 @@ void NetworkManager::handle_client(sf::TcpSocket *client, const unsigned int id)
     client = nullptr;
 }
 
-void NetworkManager::add_message(const char *data, const size_t &size, const unsigned int &id)
+void NetworkManager::add_message(std::stringstream& stream, const unsigned int &id, const int &length)
 {
+    char data[length];
+    stream >> data;
+
     {
         std::lock_guard lock(m_queue_mutex);
-        m_queue.emplace(data, size, id);
+        m_queue.emplace(RawMessage(data, id, length));
     }
 
     m_queue_cond.notify_one();
@@ -195,7 +240,7 @@ void NetworkManager::add_message(const char *data, const size_t &size, const uns
 
 void NetworkManager::tcp_message_all(const GameMessage *message, const unsigned int &ignoreId)
 {
-    const auto stream = message->serialize();
+    auto stream = message->serialize();
 
     std::lock_guard lock(m_clients_mutex);
     for (const auto&[fst, snd] : m_clients)
@@ -209,10 +254,11 @@ void NetworkManager::tcp_message_all(const GameMessage *message, const unsigned 
 
 void NetworkManager::tcp_message_id(const GameMessage *message, const unsigned int &id)
 {
-    tcp_message_id(message->serialize(), id);
+    auto stream = message->serialize();
+    tcp_message_id(stream, id);
 }
 
-void NetworkManager::tcp_message_id(const std::stringstream &stream, const unsigned int &id)
+void NetworkManager::tcp_message_id(std::stringstream &stream, const unsigned int &id)
 {
     std::lock_guard lock(m_clients_mutex);
     if(const auto client = m_clients.at(id); client != nullptr)
@@ -221,9 +267,16 @@ void NetworkManager::tcp_message_id(const std::stringstream &stream, const unsig
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
 }
 
-void NetworkManager::tcp_message_client(const std::stringstream &stream, sf::TcpSocket* client)
+void NetworkManager::tcp_message_client(std::stringstream &stream, sf::TcpSocket* client)
 {
     std::cout << "Sending: " << stream.str() << std::endl;
+
+    const uint8_t size = stream.str().size();
+    const std::string &temp = stream.str();
+    stream.seekp(0);
+    stream << size;
+    stream << temp;
+
     bool retry = false;
     do
     {

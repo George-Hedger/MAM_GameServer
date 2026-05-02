@@ -28,8 +28,6 @@ public:
 
     RawMessage await_next_message();
 
-    static constexpr int8_t m_max_players{1};
-
 private:
     const unsigned short m_tcp_port;
     const unsigned short m_udp_port;
@@ -61,18 +59,18 @@ private:
     void handle_client(sf::TcpSocket* client, unsigned int id);
 
     //Add `message` to vector
-    void add_message(const char *data, const size_t &size, const unsigned int &id);
+    void add_message(std::stringstream& stream, const unsigned int &id, const int &length);
 
 public:
     // Sends `message` to all connected clients
     void tcp_message_all(const GameMessage* message, const unsigned int &ignoreId = 1000);
 
     void tcp_message_id(const GameMessage* message, const unsigned int& id);
-    void tcp_message_id(const std::stringstream &stream, const unsigned int& id);
-
 private:
+    void tcp_message_id(std::stringstream &stream, const unsigned int& id);
+
     // Sends `message` to `client`
-    static void tcp_message_client(const std::stringstream &stream, sf::TcpSocket* client);
+    static void tcp_message_client(std::stringstream &stream, sf::TcpSocket* client);
 };
 
 #endif //MAM_GAMESERVER_NETWORKMANAGER_H
