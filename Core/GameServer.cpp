@@ -9,6 +9,8 @@
 #include <random>
 #include <thread>
 
+#include "Entity.h"
+
 void GameServer::start()
 {
     net.start();
@@ -81,7 +83,7 @@ void GameServer::generate_world()
 {
     std::cout << "Generating world..." << std::endl;
 
-    net.tcp_message_all(new RegisterMessage{"Loading Map..."});
+    net.tcp_message_all(new RegisterMessage{"Loading Entities..."});
     net.tcp_message_all(new InfoMessage{map_x, "MapX"});
     net.tcp_message_all(new InfoMessage{map_y, "MapY"});
 
@@ -121,22 +123,58 @@ void GameServer::generate_world()
     std::uniform_int_distribution<> rand_X(0, map_x - 1);
     std::uniform_int_distribution<> rand_Y(0, map_y - 1);
 
-    for (auto &y : map)
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    //Create players
+    for (const auto& [id, name] : player_names)
     {
-        for (auto &x : y)
+        entities.emplace(id, new Entity());
+        net.tcp_message_all(new NewEntityMessage(id, DEFAULT));
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    net.tcp_message_all(new RegisterMessage{"Loading Map..."});
+
+    //Create map
+    for (int8_t y = 0; y < map_y; y++)
+    {
+        if (y == 0 || y == map_y - 1)
         {
-            x = -1;
+            for (int8_t x = 0; x < map_y; x++)
+            {
+                map[y][x] = -2;
+            }
+        }
+        else
+        {
+            for (int8_t x = 0; x < map_y; x++)
+            {
+                if (x == 0 || x == map_x - 1)
+                    map[y][x] = -2;
+                else
+                    map[y][x] = -1;
+            }
         }
     }
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-    for (auto [id, name] : player_names)
+    //Place entities in free spots
+    int i = 0;
+    for (const auto& [id, entity] : entities)
     {
+        for (auto &y : map)
+        {
+            for (auto &x : y)
+            {
+                if (x == -1)
+                {
+                    x = id;
+                }
+            }
+        }
 
+        i++;
     }
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     for (int8_t y = 0; y < map_y; y++)
     {
@@ -172,12 +210,17 @@ void GameServer::generate_world()
     game_loop();
 }
 
+
 void GameServer::game_loop()
 {
     bool playing = true;
 
     while (playing)
     {
-
+        //Turn Order
+        for (auto turnID : turn_order)
+        {
+            net.tcp_message_all(new InfoMessage{turnID, "BeginTurn"});
+        }
     }
 }

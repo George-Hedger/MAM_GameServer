@@ -18,8 +18,15 @@ enum MessageType : int8_t
     SUCCESS = 2,
     INFO = 3,
     TILE_UPDATE = 4,
-    LOAD_MAP = 5
+    LOAD_MAP = 5,
+    NEW_ENTITY = 6
 };
+
+enum EntityType : int8_t
+{
+    DEFAULT = 0
+};
+
 
 struct RawMessage
 {
@@ -217,6 +224,30 @@ protected:
     }
 };
 
+struct NewEntityMessage : GameMessage
+{
+    NewEntityMessage() : GameMessage(NEW_ENTITY) {}
+
+    NewEntityMessage(const int8_t &_id, const EntityType &_type) : GameMessage(NEW_ENTITY),
+        id(_id), type(_type){}
+
+    int8_t id{};
+    EntityType type{};
+
+protected:
+    void _deserialize(std::stringstream &stream) override
+    {
+        int8_t t;
+        stream >> id >> t;
+        type = static_cast<EntityType>(t);
+    }
+
+    void _serialize(std::stringstream &stream) const override
+    {
+        stream << id << type;
+    }
+};
+
 class MessageFactory
 {
 public:
@@ -254,6 +285,8 @@ private:
                 return std::is_same_v<T, TileUpdateMessage>;
             case LOAD_MAP:
                 return std::is_same_v<T, LoadMapMessage>;
+            case NEW_ENTITY:
+                return std::is_same_v<T, NewEntityMessage>;
                 break;
         }
 

@@ -2,8 +2,8 @@
 
 #include <algorithm>
 #include <iostream>
-#include <string.h>
 #include <thread>
+#include <sstream>
 #include <SFML/Network.hpp>
 
 
@@ -153,6 +153,8 @@ void NetworkManager::handle_client(sf::TcpSocket *client, const unsigned int id)
     std::stringstream message_buffer;
     size_t buffer_size = 0;
 
+    tcp_message_id(new InfoMessage{static_cast<int8_t>(id), "PlayerID"},  id);
+
     while (client->getRemotePort() != 0)
     {
         char data[1024];
@@ -228,7 +230,7 @@ void NetworkManager::handle_client(sf::TcpSocket *client, const unsigned int id)
 void NetworkManager::add_message(std::stringstream& stream, const unsigned int &id, const int &length)
 {
     char data[length];
-    stream >> data;
+    stream.read(data, length);
 
     {
         std::lock_guard lock(m_queue_mutex);
