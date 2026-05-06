@@ -172,9 +172,9 @@ protected:
 
 struct TileUpdateMessage : GameMessage
 {
-    TileUpdateMessage() : GameMessage(LOAD_MAP) {}
+    TileUpdateMessage() : GameMessage(TILE_UPDATE) {}
 
-    TileUpdateMessage(const int8_t &_x, const int8_t &_y, const int8_t &_occupied_id = -1) : GameMessage(LOAD_MAP),
+    TileUpdateMessage(const int8_t &_x, const int8_t &_y, const int8_t &_occupied_id = -1) : GameMessage(TILE_UPDATE),
         x(_x), y(_y), occupied_id(_occupied_id) {}
 
     int8_t x{};
@@ -211,6 +211,7 @@ protected:
         for (int8_t i = 0; i <= length; i++)
         {
             stream >> tiles[i];
+            tiles[i] -= 3;
         }
     }
 
@@ -219,7 +220,7 @@ protected:
         stream << y << length;
         for (int8_t i = 0; i <= length; i++)
         {
-            stream << tiles[i];
+            stream << static_cast<int8_t>(tiles[i] + 3);
         }
     }
 };

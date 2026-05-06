@@ -18,8 +18,8 @@ private:
 
     static constexpr int8_t m_max_players{1};
 
-    static constexpr int8_t map_x{10};
-    static constexpr int8_t map_y{10};
+    static constexpr int8_t map_x{40};
+    static constexpr int8_t map_y{15};
 
     void login_loop();
     bool validate_name(const std::string& name, const int8_t &id) const;
@@ -33,6 +33,8 @@ private:
     std::unordered_map<int8_t, std::string> player_names;
 
     void game_loop();
+
+    bool move_entity(const int8_t &id, const int8_t &x, const int8_t &y);
 };
 
 

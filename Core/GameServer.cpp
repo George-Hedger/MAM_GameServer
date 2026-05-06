@@ -5,9 +5,11 @@
 #include "GameServer.h"
 
 #include <algorithm>
+#include <iomanip>
 #include <iostream>
 #include <random>
 #include <thread>
+#include "mazegen.hpp"
 
 #include "Entity.h"
 
@@ -118,17 +120,13 @@ void GameServer::generate_world()
         }
     }
 
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> rand_X(0, map_x - 1);
-    std::uniform_int_distribution<> rand_Y(0, map_y - 1);
-
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     //Create players
     for (const auto& [id, name] : player_names)
     {
         entities.emplace(id, new Entity());
+        turn_order.emplace_back(id);
         net.tcp_message_all(new NewEntityMessage(id, DEFAULT));
     }
 
@@ -137,43 +135,63 @@ void GameServer::generate_world()
     net.tcp_message_all(new RegisterMessage{"Loading Map..."});
 
     //Create map
-    for (int8_t y = 0; y < map_y; y++)
-    {
-        if (y == 0 || y == map_y - 1)
-        {
-            for (int8_t x = 0; x < map_y; x++)
-            {
+    mazegen::Config cfg;
+    cfg.ROOM_BASE_NUMBER = 25;
+    cfg.ROOM_SIZE_MIN = 3;
+    cfg.ROOM_SIZE_MAX = 7;
+    cfg.EXTRA_CONNECTION_CHANCE = 0.2;
+    cfg.WIGGLE_CHANCE = 0.5;
+    cfg.DEADEND_CHANCE = 0.5;
+    cfg.RECONNECT_DEADENDS_CHANCE = 0.5;
+    cfg.CONSTRAIN_HALL_ONLY = true;
+
+    auto gen = mazegen::Generator();
+    gen.set_seed(random());
+    gen.generate(map_x, map_y, cfg);
+
+    if (!gen.get_warnings().empty()) {
+        std::cout << gen.get_warnings() << std::endl;
+    }
+
+    for (int y = 0; y < map_y; y++) {
+        for (int x = 0; x < map_x; x++) {
+            int region = gen.region_at(x, y);
+            if (region == mazegen::NOTHING_ID) {
+                std::cout << "██";
                 map[y][x] = -2;
+            } else if (mazegen::is_door(region)){
+                // print doors
+                std::cout << "▒▒";
+                map[y][x] = -1;
+            } else {
+                // for rooms and halls we just print last 2 digits of their ids
+                std::cout << std::setw(2) << region % 100;
+                map[y][x] = -1;
             }
         }
-        else
-        {
-            for (int8_t x = 0; x < map_y; x++)
-            {
-                if (x == 0 || x == map_x - 1)
-                    map[y][x] = -2;
-                else
-                    map[y][x] = -1;
-            }
-        }
+        std::cout << std::endl;
     }
 
     //Place entities in free spots
-    int i = 0;
-    for (const auto& [id, entity] : entities)
+    auto i = entities.begin();
+    for (int y = 0; y < map_y; y++)
     {
-        for (auto &y : map)
+        for (int x = 0; x < map_x; x++)
         {
-            for (auto &x : y)
+            if (move_entity(i->first, x, y))
             {
-                if (x == -1)
+                i = std::next(i);
+                if (i == entities.end())
                 {
-                    x = id;
+                    break;
                 }
             }
         }
 
-        i++;
+        if (i == entities.end())
+        {
+            break;
+        }
     }
 
     for (int8_t y = 0; y < map_y; y++)
@@ -220,7 +238,56 @@ void GameServer::game_loop()
         //Turn Order
         for (auto turnID : turn_order)
         {
-            net.tcp_message_all(new InfoMessage{turnID, "BeginTurn"});
+            bool turnOver = false;
+            while (!turnOver)
+            {
+                net.tcp_message_all(new InfoMessage{turnID, "BeginTurn"});
+
+                RawMessage raw = net.await_next_message();
+
+                if (raw.id == turnID)
+                {
+                    TRY_DESERIALIZE(raw, TileUpdateMessage)
+                    {
+                        if (move_entity(raw.id, message->x, message->y))
+                        {
+                            net.tcp_message_all(new TileUpdateMessage{message->x, message->y, turnID});
+                            turnOver = true;
+                        }
+                        else
+                        {
+                            net.tcp_message_id(new ErrorMessage{1, "Invalid movement"}, raw.id);
+                        }
+                    }
+                    else
+                    {
+                        std::cerr << "No use for message" << std::endl;
+                        std::cerr << raw.stream.str() << std::endl;
+                    }
+                }
+                else
+                {
+                    net.tcp_message_id(new ErrorMessage{0, "Not your turn"}, raw.id);
+                }
+            }
         }
     }
+}
+
+bool GameServer::move_entity(const int8_t &id, const int8_t &x, const int8_t &y)
+{
+    if (map[y][x] != -1)
+        return false;
+
+    auto& e = entities[id];
+
+    if (e->coordX != -1 && e->coordY != -1)
+        map[e->coordY][e->coordX] = -1;
+
+    e->coordX = x;
+    e->coordY = y;
+
+    map[y][x] = id;
+
+    return true;
 }
